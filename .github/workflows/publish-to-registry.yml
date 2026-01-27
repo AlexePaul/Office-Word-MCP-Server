@@ -1,4 +1,4 @@
-name: Publish to GitHub Registry
+name: Publish MCP Server to GitHub Registry
 
 on:
   push:
@@ -8,22 +8,20 @@ on:
 
 jobs:
   publish:
-    name: Publish to GitHub Registry
+    name: Publish MCP Server
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: "20"
+      - name: Set repository name
+        run: echo "REPO_NAME=ghcr.io/alexepaul/office-word-mcp-server" >> $GITHUB_ENV
 
       - name: Log in to GitHub Container Registry
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
 
       - name: Build and publish Docker image
         run: |
-          docker build -t ghcr.io/${{ github.repository }}/office-word-mcp-server:latest ./Office-Word-MCP-Server
-          docker push ghcr.io/${{ github.repository }}/office-word-mcp-server:latest
+          docker build -t $REPO_NAME:latest ./Office-Word-MCP-Server
+          docker push $REPO_NAME:latest
