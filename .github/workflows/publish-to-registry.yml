@@ -1,0 +1,29 @@
+name: Publish to GitHub Registry
+
+on:
+  push:
+    branches:
+      - main
+      - feature/github-registry
+
+jobs:
+  publish:
+    name: Publish to GitHub Registry
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "20"
+
+      - name: Log in to GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
+
+      - name: Build and publish Docker image
+        run: |
+          docker build -t ghcr.io/${{ github.repository }}/office-word-mcp-server:latest ./Office-Word-MCP-Server
+          docker push ghcr.io/${{ github.repository }}/office-word-mcp-server:latest
