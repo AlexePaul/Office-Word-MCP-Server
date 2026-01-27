@@ -6,6 +6,8 @@ Supports multiple transports: stdio, sse, and streamable-http using standalone F
 
 import os
 import sys
+import tempfile
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -15,6 +17,9 @@ load_dotenv()
 os.environ.setdefault('FASTMCP_LOG_LEVEL', 'INFO')
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.responses import FileResponse
+from contextlib import asynccontextmanager
 from word_document_server.tools import (
     document_tools,
     content_tools,
@@ -40,7 +45,8 @@ def get_transport_config():
         'host': '0.0.0.0',
         'port': 8000,
         'path': '/mcp',
-        'sse_path': '/sse'
+        'sse_path': '/sse',
+        'debug': False
     }
     
     # Override with environment variables if provided
@@ -58,6 +64,7 @@ def get_transport_config():
     config['port'] = int(os.getenv('PORT', os.getenv('MCP_PORT', config['port'])))
     config['path'] = os.getenv('MCP_PATH', config['path'])
     config['sse_path'] = os.getenv('MCP_SSE_PATH', config['sse_path'])
+    config['debug'] = os.getenv('MCP_DEBUG', 'false').lower() in ('true', '1', 'yes')
     
     return config
 
@@ -692,6 +699,91 @@ def register_tools():
                                                    top, bottom, left, right, unit)
 
 
+# Global temp upload directory - use app word-data directory for consistency with MCP operations
+TEMP_UPLOAD_DIR = Path('/tmp/jobs')
+TEMP_UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
+
+
+def create_upload_app():
+    """Create a FastAPI app for file uploads/downloads."""
+    
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        print(f"FastAPI app startup - session dir: {TEMP_UPLOAD_DIR}")
+        yield
+        print("FastAPI app shutdown")
+    
+    app = FastAPI(title="Word Document MCP Server - Upload/Download API", lifespan=lifespan)
+    
+    @app.post("/upload/{mcp_session_id}")
+    async def upload_file(mcp_session_id: str, file: UploadFile = File(...)):
+        """
+        Upload a file to a session folder.
+        
+        Args:
+            mcp_session_id: Session ID for organizing uploads
+            file: File to upload
+        
+        Returns:
+            {
+                "session_id": "provided-id",
+                "filename": "original-filename",
+                "file_path": "/path/to/file",
+                "message": "File uploaded successfully"
+            }
+        """
+        try:
+            # Create session folder
+            session_folder = TEMP_UPLOAD_DIR / mcp_session_id
+            session_folder.mkdir(exist_ok=True, parents=True)
+            
+            # Save file
+            file_path = session_folder / file.filename
+            content = await file.read()
+            
+            with open(file_path, "wb") as f:
+                f.write(content)
+            
+            return {
+                "sessionId": mcp_session_id,
+                "fileName": file.filename,
+                "filePath": str(file_path),
+                "sessionFolder": str(session_folder),
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    @app.get("/download")
+    async def download_file(session_id: str, filename: str):
+        """
+        Download a file from a session.
+        
+        Query Parameters:
+            session_id: Session ID containing the file
+            filename: Name of the file to download
+        
+        Returns:
+            File content
+        """
+        try:
+            session_folder = TEMP_UPLOAD_DIR / session_id
+            file_path = session_folder / filename
+            
+            if not file_path.exists():
+                raise HTTPException(status_code=404, detail="File not found")
+            
+            return FileResponse(
+                path=file_path,
+                filename=filename,
+                media_type='application/octet-stream'
+            )
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail="File not found")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    
+    return app
+
 
 def run_server():
     """Run the Word Document MCP Server with configurable transport."""
@@ -718,8 +810,25 @@ def run_server():
             mcp.run(transport='stdio')
             
         elif transport_type == 'streamable-http':
-            # Run with streamable HTTP transport
+            # Run with streamable HTTP transport for MCP
             print(f"Server running on streamable-http transport at http://{config['host']}:{config['port']}{config['path']}")
+            
+            # Create FastAPI app for uploads/downloads on a different port
+            upload_port = config['port'] + 1
+            app = create_upload_app()
+            
+            import uvicorn
+            import threading
+            
+            # Run FastAPI in a background thread
+            def run_upload_server():
+                print(f"Upload/Download API running on http://{config['host']}:{upload_port}")
+                uvicorn.run(app, host=config['host'], port=upload_port, log_level="info")
+            
+            upload_thread = threading.Thread(target=run_upload_server, daemon=True)
+            upload_thread.start()
+            
+            # Run MCP in the main thread
             mcp.run(
                 transport='streamable-http',
                 host=config['host'],
@@ -728,8 +837,25 @@ def run_server():
             )
             
         elif transport_type == 'sse':
-            # Run with SSE transport
+            # Run with SSE transport for MCP
             print(f"Server running on SSE transport at http://{config['host']}:{config['port']}{config['sse_path']}")
+            
+            # Create FastAPI app for uploads/downloads on a different port
+            upload_port = config['port'] + 1
+            app = create_upload_app()
+            
+            import uvicorn
+            import threading
+            
+            # Run FastAPI in a background thread
+            def run_upload_server():
+                print(f"Upload/Download API running on http://{config['host']}:{upload_port}")
+                uvicorn.run(app, host=config['host'], port=upload_port, log_level="info")
+            
+            upload_thread = threading.Thread(target=run_upload_server, daemon=True)
+            upload_thread.start()
+            
+            # Run MCP in the main thread
             mcp.run(
                 transport='sse',
                 host=config['host'],
