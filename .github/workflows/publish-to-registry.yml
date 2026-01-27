@@ -23,5 +23,5 @@ jobs:
 
       - name: Build and publish Docker image
         run: |
-          docker build -t $REPO_NAME:latest ./Office-Word-MCP-Server
+          docker build -t $REPO_NAME:latest .
           docker push $REPO_NAME:latest
