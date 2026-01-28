@@ -5,3 +5,4 @@ docx2pdf
 python-dotenv
 fastapi
 uvicorn[standard]
+python-docx

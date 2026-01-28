@@ -8,6 +8,12 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from pathlib import Path
+import zipfile
+import tempfile
+from docx import Document
+
+from annotated_types import doc
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -715,6 +721,35 @@ def create_upload_app():
     
     app = FastAPI(title="Word Document MCP Server - Upload/Download API", lifespan=lifespan)
     
+    TEMPLATE_CT = "application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml"
+    DOCUMENT_CT = "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+
+    def dotx_to_docx(dotx_path: str, docx_path: str) -> None:
+        dotx_path = str(dotx_path)
+        docx_path = str(docx_path)
+        # 1) Patch content type in a temp copy so python-docx will open it
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            with zipfile.ZipFile(dotx_path, "r") as zin, zipfile.ZipFile(tmp_path, "w", compression=zipfile.ZIP_DEFLATED) as zout:
+                for item in zin.infolist():
+                    data = zin.read(item.filename)
+
+                    if item.filename == "[Content_Types].xml":
+                        xml = data.decode("utf-8")
+                        xml = xml.replace(TEMPLATE_CT, DOCUMENT_CT)
+                        data = xml.encode("utf-8")
+
+                    zout.writestr(item, data)
+
+            # 2) Now python-docx can read it and write a normal .docx
+            doc = Document(tmp_path)
+            doc.save(docx_path)
+
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
     @app.post("/upload/{mcp_session_id}")
     async def upload_file(mcp_session_id: str, file: UploadFile = File(...)):
         """
@@ -744,10 +779,21 @@ def create_upload_app():
             with open(file_path, "wb") as f:
                 f.write(content)
             
+            try:
+                if file.filename.lower().endswith('.dotx'):
+                    # Convert .dotx to .docx
+                    docx_filename = file.filename[:-5] + '.docx'
+                    print(f"Converting .dotx to .docx: {file.filename} -> {docx_filename}")
+                    docx_path = session_folder / docx_filename
+                    dotx_to_docx(str(file_path), str(docx_path))
+            except Exception as e:
+                print(e)
+                raise HTTPException(status_code=500, detail=f"Error converting .dotx to .docx: {str(e)}")
+            
             return {
                 "sessionId": mcp_session_id,
-                "fileName": file.filename,
-                "filePath": str(file_path),
+                "fileName": docx_filename if 'docx_filename' in locals() else file.filename,
+                "filePath": str(docx_path) if 'docx_path' in locals() else str(file_path),
                 "sessionFolder": str(session_folder),
             }
         except Exception as e:
