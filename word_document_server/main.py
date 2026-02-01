@@ -601,7 +601,7 @@ def register_tools():
 
     @mcp.tool(
         annotations=ToolAnnotations(
-            title="Replace Block Between Anchors",
+            title="Replace Block Between Anchors. Without deleting anchors",
         ),
     )
     def replace_block_between_manual_anchors(filename: str, start_anchor_text: str, new_paragraphs: list[str], end_anchor_text: str = None, match_fn: str = None, new_paragraph_style: str = None):

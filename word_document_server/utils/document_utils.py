@@ -155,10 +155,18 @@ def find_and_replace_text(doc, old_text, new_text):
         if para.style and para.style.name.startswith("TOC"):
             continue
         if old_text in para.text:
+            replaced_in_runs = False
             for run in para.runs:
                 if old_text in run.text:
+                    occurrences = run.text.count(old_text)
                     run.text = run.text.replace(old_text, new_text)
-                    count += 1
+                    count += occurrences
+                    replaced_in_runs = True
+            if not replaced_in_runs:
+                # Fallback for placeholders split across multiple runs (may drop inline formatting).
+                occurrences = para.text.count(old_text)
+                para.text = para.text.replace(old_text, new_text)
+                count += occurrences
     
     # Search in tables
     for table in doc.tables:
@@ -169,10 +177,18 @@ def find_and_replace_text(doc, old_text, new_text):
                     if para.style and para.style.name.startswith("TOC"):
                         continue
                     if old_text in para.text:
+                        replaced_in_runs = False
                         for run in para.runs:
                             if old_text in run.text:
+                                occurrences = run.text.count(old_text)
                                 run.text = run.text.replace(old_text, new_text)
-                                count += 1
+                                count += occurrences
+                                replaced_in_runs = True
+                        if not replaced_in_runs:
+                            # Fallback for placeholders split across multiple runs (may drop inline formatting).
+                            occurrences = para.text.count(old_text)
+                            para.text = para.text.replace(old_text, new_text)
+                            count += occurrences
     
     return count
 
