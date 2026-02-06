@@ -191,7 +191,9 @@ def register_tools():
     )
     def insert_line_or_paragraph_near_text(filename: str, target_text: str = None, line_text: str = None, position: str = 'after', line_style: str = None, target_paragraph_index: int = None):
         """
-        Insert a new line or paragraph (with specified or matched style) before or after the target paragraph. Specify by text or paragraph index. Args: filename (str), target_text (str, optional), line_text (str), position ('before' or 'after'), line_style (str, optional), target_paragraph_index (int, optional).
+        Insert a new line or paragraph before or after the target paragraph. Specify by text or paragraph index.
+        IMPORTANT: Always set line_style explicitly (e.g., 'Normal', 'Heading 1', 'Heading 2', 'Heading 3') to avoid inheriting the target paragraph style.
+        Args: filename (str), target_text (str, optional), line_text (str), position ('before' or 'after'), line_style (REQUIRED), target_paragraph_index (int, optional).
         """
         return content_tools.insert_line_or_paragraph_near_text_tool(filename, target_text, line_text, position, line_style, target_paragraph_index)
     
