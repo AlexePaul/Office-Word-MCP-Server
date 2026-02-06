@@ -2,6 +2,7 @@
 Document utility functions for Word Document Server.
 """
 import json
+import re
 from typing import Dict, List, Any
 from docx import Document
 from docx.oxml.table import CT_Tbl
@@ -135,6 +136,27 @@ def find_paragraph_by_text(doc, text, partial_match=False):
     return matching_paragraphs
 
 
+def _build_whitespace_tolerant_regex(text: str) -> re.Pattern:
+    parts = text.split()
+    if not parts:
+        return re.compile(re.escape(text))
+    pattern = r"\s+".join(re.escape(part) for part in parts)
+    return re.compile(pattern)
+
+
+def _replace_in_paragraph_text(para_text: str, old_text: str, new_text: str, regex: re.Pattern):
+    if old_text in para_text:
+        occurrences = para_text.count(old_text)
+        return para_text.replace(old_text, new_text), occurrences
+
+    normalized_text = para_text.replace('\u00a0', ' ')
+    if regex.search(normalized_text):
+        updated_text, occurrences = regex.subn(new_text, normalized_text)
+        return updated_text, occurrences
+
+    return para_text, 0
+
+
 def find_and_replace_text(doc, old_text, new_text):
     """
     Find and replace text throughout the document, skipping Table of Contents (TOC) paragraphs.
@@ -149,6 +171,8 @@ def find_and_replace_text(doc, old_text, new_text):
     """
     count = 0
     
+    regex = _build_whitespace_tolerant_regex(old_text)
+
     # Search in paragraphs
     for para in doc.paragraphs:
         # Skip TOC paragraphs
@@ -164,8 +188,15 @@ def find_and_replace_text(doc, old_text, new_text):
                     replaced_in_runs = True
             if not replaced_in_runs:
                 # Fallback for placeholders split across multiple runs (may drop inline formatting).
-                occurrences = para.text.count(old_text)
-                para.text = para.text.replace(old_text, new_text)
+                updated_text, occurrences = _replace_in_paragraph_text(para.text, old_text, new_text, regex)
+                if occurrences:
+                    para.text = updated_text
+                    count += occurrences
+        else:
+            # Whitespace-tolerant fallback (may drop inline formatting).
+            updated_text, occurrences = _replace_in_paragraph_text(para.text, old_text, new_text, regex)
+            if occurrences:
+                para.text = updated_text
                 count += occurrences
     
     # Search in tables
@@ -186,8 +217,15 @@ def find_and_replace_text(doc, old_text, new_text):
                                 replaced_in_runs = True
                         if not replaced_in_runs:
                             # Fallback for placeholders split across multiple runs (may drop inline formatting).
-                            occurrences = para.text.count(old_text)
-                            para.text = para.text.replace(old_text, new_text)
+                            updated_text, occurrences = _replace_in_paragraph_text(para.text, old_text, new_text, regex)
+                            if occurrences:
+                                para.text = updated_text
+                                count += occurrences
+                    else:
+                        # Whitespace-tolerant fallback (may drop inline formatting).
+                        updated_text, occurrences = _replace_in_paragraph_text(para.text, old_text, new_text, regex)
+                        if occurrences:
+                            para.text = updated_text
                             count += occurrences
     
     return count
