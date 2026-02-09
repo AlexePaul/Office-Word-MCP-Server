@@ -7,6 +7,7 @@ Supports multiple transports: stdio, sse, and streamable-http using standalone F
 import os
 import sys
 import tempfile
+import shutil
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -174,19 +175,39 @@ def register_tools():
             title="Insert Header Near Text",
         ),
     )
-    def insert_header_near_text(filename: str, target_text: str = None, header_title: str = None, position: str = 'after', header_style: str = 'Heading 1', target_paragraph_index: int = None):
-        """Insert a header (with specified style) before or after the target paragraph. Specify by text or paragraph index. Args: filename (str), target_text (str, optional), header_title (str), position ('before' or 'after'), header_style (str, default 'Heading 1'), target_paragraph_index (int, optional)."""
-        return content_tools.insert_header_near_text_tool(filename, target_text, header_title, position, header_style, target_paragraph_index)
+    def insert_header_near_text(
+        filename: str,
+        target_text: str = None,
+        header_title: str = None,
+        position: str = 'after',
+        header_style: str = None,
+        target_paragraph_index: int = None,
+    ):
+        """Insert a header (with specified style) before or after the target paragraph. Specify by text or paragraph index. Args: filename (str), target_text (str, optional), header_title (str), position ('before' or 'after'), header_style (required), target_paragraph_index (int, optional)."""
+        if not header_style:
+            raise ValueError("header_style is required")
+        return content_tools.insert_header_near_text_tool(
+            filename, target_text, header_title, position, header_style, target_paragraph_index
+        )
     
     @mcp.tool(
         annotations=ToolAnnotations(
             title="Insert Line Near Text",
         ),
     )
-    def insert_line_or_paragraph_near_text(filename: str, target_text: str = None, line_text: str = None, position: str = 'after', line_style: str = None, target_paragraph_index: int = None):
+    def insert_line_or_paragraph_near_text(
+        filename: str,
+        target_text: str = None,
+        line_text: str = None,
+        position: str = 'after',
+        line_style: str = None,
+        target_paragraph_index: int = None,
+    ):
         """
-        Insert a new line or paragraph (with specified or matched style) before or after the target paragraph. Specify by text or paragraph index. Args: filename (str), target_text (str, optional), line_text (str), position ('before' or 'after'), line_style (str, optional), target_paragraph_index (int, optional).
+        Insert a new line or paragraph (with specified style) before or after the target paragraph. Specify by text or paragraph index. Args: filename (str), target_text (str, optional), line_text (str), position ('before' or 'after'), line_style (required), target_paragraph_index (int, optional).
         """
+        if not line_style:
+            raise ValueError("line_style is required")
         return content_tools.insert_line_or_paragraph_near_text_tool(filename, target_text, line_text, position, line_style, target_paragraph_index)
     
     @mcp.tool(
@@ -752,6 +773,32 @@ def create_upload_app():
             }
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/create_folder")
+    async def create_folder(payload: dict):
+        """
+        Create a session folder under /tmp/jobs.
+        
+        Body:
+            { "session_id": "job-id" }
+        """
+        try:
+            session_id = str(payload.get("session_id", "")).strip()
+            if not session_id:
+                raise HTTPException(status_code=400, detail="session_id is required")
+
+            session_folder = TEMP_UPLOAD_DIR / session_id
+            session_folder.mkdir(exist_ok=True, parents=True)
+
+            return {
+                "sessionId": session_id,
+                "sessionFolder": str(session_folder),
+                "created": True,
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
     
     @app.get("/download")
     async def download_file(session_id: str, filename: str):
@@ -779,6 +826,55 @@ def create_upload_app():
             )
         except FileNotFoundError:
             raise HTTPException(status_code=404, detail="File not found")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.delete("/jobs/{job_id}")
+    async def delete_job_files(job_id: str):
+        """
+        Delete all files for a job/session (uploaded + generated).
+        
+        Path Parameters:
+            job_id: Job/session ID whose folder should be deleted
+        
+        Returns:
+            {
+                "jobId": "provided-id",
+                "deleted": true,
+                "path": "/tmp/jobs/<job_id>",
+                "fileCount": 3
+            }
+        """
+        try:
+            base_dir = TEMP_UPLOAD_DIR.resolve()
+            session_folder = (TEMP_UPLOAD_DIR / job_id).resolve()
+
+            # Prevent path traversal outside the temp upload directory
+            try:
+                session_folder.relative_to(base_dir)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid job id")
+
+            if not session_folder.exists():
+                raise HTTPException(status_code=404, detail="Job not found")
+
+            if not session_folder.is_dir():
+                raise HTTPException(status_code=500, detail="Job path is not a directory")
+
+            file_count = 0
+            for _, _, files in os.walk(session_folder):
+                file_count += len(files)
+
+            shutil.rmtree(session_folder)
+
+            return {
+                "jobId": job_id,
+                "deleted": True,
+                "path": str(session_folder),
+                "fileCount": file_count,
+            }
+        except HTTPException:
+            raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     
