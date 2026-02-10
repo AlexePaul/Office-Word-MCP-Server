@@ -469,7 +469,7 @@ async def insert_numbered_list_near_text_tool(filename: str, target_text: str = 
     return insert_numbered_list_near_text(filename, target_text, list_items, position, target_paragraph_index, bullet_type)
 
 async def insert_line_or_paragraph_near_text_tool(filename: str, target_text: str = None, line_text: str = "", position: str = 'after', line_style: str = None, target_paragraph_index: int = None) -> str:
-    """Insert a new line or paragraph (with specified or matched style) before or after the target paragraph. Specify by text or paragraph index."""
+    """Insert a new line or paragraph before or after the target paragraph. Specify by text or paragraph index. IMPORTANT: Always set line_style explicitly (e.g., 'Normal', 'Heading 1', 'Heading 2', 'Heading 3') to avoid inheriting the target paragraph style."""
     return insert_line_or_paragraph_near_text(filename, target_text, line_text, position, line_style, target_paragraph_index)
 
 async def replace_paragraph_block_below_header_tool(filename: str, header_text: str, new_paragraphs: list, detect_block_end_fn=None) -> str:
